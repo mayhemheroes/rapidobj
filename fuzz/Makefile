@@ -1,0 +1,2 @@
+rapidobj-fuzz: rapidobj-fuzz.cpp
+	clang++ -g -std=c++17 -fsanitize=fuzzer,address,undefined,nullability,integer,implicit-conversion -fno-sanitize-recover=undefined,nullability,integer,implicit-conversion rapidobj-fuzz.cpp -o rapidobj-fuzz

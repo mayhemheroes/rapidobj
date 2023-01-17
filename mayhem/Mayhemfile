@@ -1,0 +1,6 @@
+project: rapidobj
+target: rapidobj-fuzz
+
+cmds:
+    - cmd: ./rapidobj-fuzz
+      libfuzzer: true
