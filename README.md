@@ -6,6 +6,7 @@
 ![Build Status](https://github.com/guybrush77/rapidobj/actions/workflows/build.yml/badge.svg?event=push)
 
 - [About](#about)
+- [Benchmarks](#benchmarks)
 - [Integration](#integration)
   - [Prerequisites](#prerequisites)
   - [Manual Integration](#manual-integration)
@@ -31,11 +32,17 @@
 
 ## About
 
-rapidobj is an easy-to-use, single-header C++17 library that loads and parses [Wavefront .obj files](https://en.wikipedia.org/wiki/Wavefront_.obj_file).
+rapidobj is an easy-to-use and fast single-header C++17 library that loads and parses [Wavefront .obj files](https://en.wikipedia.org/wiki/Wavefront_.obj_file).
 
 The .obj file format was first used by Wavefront Technologies around 1990. However, this 3D geometry file format did not age well. An .obj file is a text file and, consequently, large models take a lot of of disk space and are slow to load and parse. Moreover, after loading and parsing, additional processing steps are required to transform the data into a format suitable for hardware (i.e. GPU) rendering. Nevertheless, .obj files are common enough that it's useful to have an efficient way to parse them.
 
-rapidobj's API was influenced by another single header C++ library, [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader). From users' point of view, the two libraries look fairly similar. That said, tinyobjloader has been around for some time; it is a mature and well tested library. So, why use rapidobj library? It is fast, and especially so when parsing large files. It was designed to take full advantage of modern computer hardware. See [Benchmarks](docs/BENCHMARKS.md) page.
+## Benchmarks
+
+rapidobj's API was influenced by another single header C++ library, [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader). From users' point of view, the two libraries look fairly similar. That said, tinyobjloader has been around for some time; it is a mature and well tested library. So, why use rapidobj library? It is fast, and especially so when parsing large files. It was designed to take full advantage of modern computer hardware.
+
+See [Benchmarks](docs/BENCHMARKS.md) page.
+
+For an independent evaluation of this and other .obj parsers, check out [Comparing .obj parse libraries](https://aras-p.info/blog/2022/05/14/comparing-obj-parse-libraries/).
 
 ## Integration
 
@@ -161,44 +168,75 @@ target_link_libraries(my_app PRIVATE rapidobj::rapidobj)
 
 ### ParseFile
 
-Loads an .obj file, parses it and returns a result object.
+Loads a Wavefront .obj data from a file, parses it and returns a binary [`Result`](#result) object.
 
 **Signature:**
 
 ```c++
 Result ParseFile(
     const std::filesystem::path& obj_filepath,
-    const MaterialLibrary&       mtl_library = MaterialLibrary::Default())
+    const MaterialLibrary&       mtl_library = MaterialLibrary::Default());
 ```
 
 **Parameters:**
 
 - `obj_filepath` - Path to .obj file to be parsed.
-- `mtl_library` - MaterialLibrary object specifies .mtl file search path(s) and loading policy.
+- `mtl_library` - [`MaterialLibrary`](#materiallibrary) object specifies .mtl file search path(s) and loading policy.
 
 **Result:**
 
-- `Result` - The .obj file data in a binary format.
+- [`Result`](#result) - The .obj file data in a binary format.
 
 <details>
 <summary><i>Show examples</i></summary>
   
 ```c++
-Result result = ParseFile("/home/user/teapot/teapot.obj");
+rapidobj::Result result = rapidobj::ParseFile("/home/user/teapot/teapot.obj");
+```
+
+</details>
+
+### ParseStream
+
+Loads a Wavefront .obj data from a standard library input stream, parses it and returns a binary [`Result`](#result) object. Because input streams are sequential, this function is usually less performant than the similar [`ParseFile`](#parsefile) function.
+
+**Signature:**
+
+```c++
+Result ParseStream(
+    std::istream&          obj_stream,
+    const MaterialLibrary& mtl_library = MaterialLibrary::Default());
+```
+
+**Parameters:**
+
+- `obj_filepath` - Input stream to parse.
+- `mtl_library` - [`MaterialLibrary`](#materiallibrary) object specifies .mtl file search path(s) and loading policy.
+
+**Result:**
+
+- [`Result`](#result) - The .obj file data in a binary format.
+
+<details>
+<summary><i>Show examples</i></summary>
+  
+```c++
+std::ifstream stream("/home/user/teapot/teapot.obj");
+rapidobj::Result result = rapidobj::ParseStream(stream);
 ```
 
 </details>
 
 ### MaterialLibrary
 
-An object of type MaterialLibrary is used as an argument for the ParseFile function. It tells the ParseFile function how materials are to be handled.
+An object of type MaterialLibrary is used as an argument for the `Parse` functions. It informs these functions how materials are to be handled.
 
 **Signature:**
 
 ```c++
-struct MaterialLibrary
-{
-    static MaterialLibrary Default(Load policy = Load::Mandatory);
+struct MaterialLibrary final {
+    static MaterialLibrary Default();
+    static MaterialLibrary Default(Load policy);
     static MaterialLibrary SearchPath(std::filesystem::path path, Load policy = Load::Mandatory);
     static MaterialLibrary SearchPaths(std::vector<std::filesystem::path> paths, Load policy = Load::Mandatory);
     static MaterialLibrary String(std::string_view text);
@@ -206,9 +244,13 @@ struct MaterialLibrary
 };
 ```
 
-**`Default`**
+**`Default()`**
 
-A convenience constructor identical to `MaterialLibrary::SearchPath(".")`.
+A convenience constructor.
+
+For [`ParseFile`](#parsefile), this constructor is identical to `MaterialLibrary::SearchPath(".", Load::Mandatory)`.
+
+For [`ParseStream`](#parsestream), this constructor is identical to `MaterialLibrary::Ignore()`, except that [`Mesh::material_ids`](#meshmaterial_ids) will be populated.
 
 <details>
 <summary><i>Show examples</i></summary>
@@ -235,17 +277,48 @@ Result result = ParseFile("/home/user/teapot/teapot.obj", MaterialLibrary::Defau
 Result result = ParseFile("/home/user/teapot/teapot.obj");
 ```
 
+ ```c++
+// MaterialLibrary::Default can be omitted since it is the default argument of ParseStream.
+// Material library will not be parsed, but Mesh::material_ids will be populated.
+//
+Result result = ParseStream(input_stream);
+```
+
 </details>
 
-**`SearchPath`**
+**`Default(Load policy)`**
 
-Constructor used to specify .mtl file's relative or absolute search path and file loading policy (search path is relative to .obj file's parent folder).
+A convenience constructor for [`ParseFile`](#parsefile) only.
+
+Identical to `MaterialLibrary::SearchPath(".", policy)`.
 
 <details>
 <summary><i>Show examples</i></summary>
 
 ```c++
-// Look for .mtl file in subfolder 'materials'.
+// Look for the teapot.mtl file in the teapot folder.
+// This call will not generate an error if teapot.mtl cannot be found.
+//  
+// home
+// └── user
+//     └── teapot
+//         └── teapot.obj
+Result result = ParseFile("/home/user/teapot/teapot.obj", MaterialLibrary::Default(Load::Optional));
+```
+
+</details>
+
+**`SearchPath(std::filesystem::path path, Load policy)`**
+
+Constructor used to specify .mtl file's relative or absolute search path and [loading policy](#load-policy).
+
+A relative search path's current directory is .obj file's parent folder. A relative search path only applies to the [`ParseFile`](#parsefile) function; specifying a relative search path for the [`ParseStream`](#parsestream) function will generate an error.
+
+<details>
+<summary><i>Show examples</i></summary>
+
+```c++
+// Look for .mtl file in subfolder 'materials' using a relative search path.
 //
 // home
 // └── user
@@ -257,7 +330,7 @@ Result result = ParseFile("/home/user/teapot/teapot.obj", MaterialLibrary::Searc
 ```
 
 ```c++
-// Look for .mtl file in an arbitrary file folder.
+// Look for .mtl file in an arbitrary file folder using an absolute search path.
 //
 // home
 // └── user
@@ -270,9 +343,11 @@ Result result = ParseFile("/home/user/teapot/teapot.obj", MaterialLibrary::Searc
 
 </details>
 
-**`SearchPaths`**
+**`SearchPaths(std::vector<std::filesystem::path> paths, Load policy)`**
 
-Constructor used to specify .mtl file's relative or absolute search paths and file loading policy (search paths are relative to .obj file's parent folder). The paths are examined in order; the first .mtl file found will be the one to be loaded and parsed.
+Constructor used to specify multiple .mtl file's relative or absolute search paths and [loading policy](#load-policy). The paths are examined in order; the first .mtl file found will be loaded and parsed.
+
+A relative search path's current directory is .obj file's parent folder. A relative search path only applies to the [`ParseFile`](#parsefile) function; specifying a relative search path for the [`ParseStream`](#parsestream) function will generate an error.
 
 <details>
 <summary><i>Show examples</i></summary>
@@ -295,7 +370,7 @@ Result          result = ParseFile("/home/user/teapot/teapot.obj", mtllib);
 
 </details>
 
-**`String`**
+**`String(std::string_view text)`**
 
 Constructor used to provide .mtl material description as a string.
 
@@ -318,9 +393,9 @@ Result result = ParseFile("/home/user/teapot/teapot.obj", MaterialLibrary::Strin
 
 </details>
 
-**`Ignore`**
+**`Ignore()`**
 
-Constructor used to instruct ParseFile to ignore material library, regardless of whether it is present or not. Materials array will be empty. Mesh material_ids arrays will be empty.
+Constructor used to instruct `Parse` functions to completely ignore any material libraries, regardless of whether they are present or not.  [`Result`](#result) [`Materials`](#materials) array will be empty. Moreover, all [`Mesh::material_ids`](#meshmaterial_ids) arrays will be empty.
 
 <details>
 <summary><i>Show examples</i></summary>
@@ -340,11 +415,11 @@ Result result = ParseFile("/home/user/teapot/teapot.obj", MaterialLibrary::Ignor
 
 ### Load Policy
 
-Load is passed as an argument to MaterialLibrary::SearchPath(s) constructors to specify which actions to take if the material library file cannot be opened.
+Load is passed as an argument to [`MaterialLibrary`](#materiallibrary) `SearchPath(s)` constructors to specify which actions to take if the material library file cannot be opened.
 
-Mandatory loading instructs the ParseFile function to immediately stop further execution and produce an error if the .mtl file cannot be opened.
+Mandatory loading instructs the [`ParseFile`](#parsefile) and [`ParseStream`](#parsestream) functions to immediately stop further execution and produce an error if the .mtl file cannot be opened.
 
-Optional loading instructs the ParseFile function to continue .obj loading and parsing, even if the .mtl file cannot be opened. However, Materials array will be empty. Mesh material_ids will contain ids assigned in order of appearance in the .obj file (0, 1, 2 etc.).
+Optional loading instructs the Parse functions to continue .obj loading and parsing, even if the .mtl file cannot be opened. No error will be generated. However, in this case, the [`Materials`](#materials) array will be empty. [`Mesh::material_ids`](#meshmaterial_ids) will contain ids assigned in order of appearance in the .obj file (0, 1, 2 etc.).
 
 **Signature:**
 
@@ -383,7 +458,7 @@ Result          result = ParseFile("/home/user/teapot/teapot.obj", mtllib);
 
 ### Triangulate
 
-Triangulate all meshes in the Result object.
+Triangulate all meshes in the [`Result`](#result) object.
 
 **Signature:**
 
@@ -393,7 +468,7 @@ bool Triangulate(Result& result)
 
 **Parameters:**
 
-- `result` - Result object obtained from calling ParseFile function.
+- `result` - [`Result`](#result) object returned from the [`ParseFile`](#parsefile) or [`ParseStream`](#parsestream) functions.
 
 **Result:**
 
@@ -413,7 +488,7 @@ bool   success = Triangulate(result);
 
 ### Result
 
-Result object is the return value of the ParseFile function. It contains the .obj and .mtl file data in binary format.
+Result object is the return value of the [`ParseFile`](#parsefile) and [`ParseStream`](#parsestream) functions. It contains the .obj and .mtl file data in binary format.
 
 ![rapidobj::Result](data/images/docs/result-light.png#gh-light-mode-only)
 ![rapidobj::Result](data/images/docs/result-dark.png#gh-dark-mode-only)
@@ -422,7 +497,7 @@ Result object is the return value of the ParseFile function. It contains the .ob
 
 Attributes class contains four linear arrays which store vertex positions, texture coordinates, normals and colors data. The element value type is 32-bit float. Only vertex positions are mandatory. Texture coordinates, normals and color attribute arrays can be empty. Array elements are interleaved as { x, y, z } for positions and normals, { u, v } for texture coordinates and { r, g, b } for colors.
 
-**`Attributes::positions`**
+#### `Attributes::positions`
 
 <table>
     <tr>
@@ -440,7 +515,7 @@ Attributes class contains four linear arrays which store vertex positions, textu
     </tr>
 </table>
 
-**`Attributes::texcoords`**
+#### `Attributes::texcoords`
 
 <table>
     <tr>
@@ -458,7 +533,7 @@ Attributes class contains four linear arrays which store vertex positions, textu
     </tr>
 </table>
 
-**`Attributes::normals`**
+#### `Attributes::normals`
 
 <table>
     <tr>
@@ -476,7 +551,7 @@ Attributes class contains four linear arrays which store vertex positions, textu
     </tr>
 </table>
 
-**`Attributes::colors`**
+#### `Attributes::colors`
 
 <table>
     <tr>
@@ -496,13 +571,13 @@ Attributes class contains four linear arrays which store vertex positions, textu
 
 ### Shape
 
-Shape is a polyhedral mesh (`Mesh`), a set of polylines (`Lines`) or a set of points (`Points`).
+Shape is a polyhedral mesh ([`Mesh`](#mesh)), a set of polylines ([`Lines`](#lines)) or a set of points ([`Points`](#points)).
 
 ### Mesh
 
 Mesh class defines the shape of a polyhedral object. The geometry data is stored in two arrays: indices and num_face_vertices. Per face material information is stored in the material_ids array. Smoothing groups, used for normal interpolation, are stored in the smoothing_group_ids array.
 
-**`Mesh::indices`**
+#### `Mesh::indices`
 
 The indices array is a collection of faces formed by indexing into vertex attribute arrays. It is a linear array of Index objects. Index class has three fields: position_index, texcoord_index, and normal_index. Only the position_index is mandatory; a vertex normal and UV coordinates are optional. For optional attributes, invalid index (-1) is stored in the normal_index and texcoord_index fields.
 
@@ -522,9 +597,9 @@ The indices array is a collection of faces formed by indexing into vertex attrib
     </tr>
 </table>
 
-**`Mesh::num_face_vertices`**
+#### `Mesh::num_face_vertices`
 
-A mesh face can have three (triangle), four (quad) or more vertices. Because the indices array is flat, extra information is required to identify which indices are associated with a particular face. The number of vertices for each face [3..255] is stored in the num_face_vertices array. The size of the num_face_vertices array is equal to the number of faces in the mesh.
+A mesh face can have three (triangle), four (quad) or more vertices. Because the indices array is flat, extra information is required to identify which indices are associated with a particular face. The number of vertices for each face [3..255] is stored in the num_face_vertices array. The size of the num_face_vertices array is equal to the number of faces in the mesh. For example, a mesh whose first face is a triangle, second face a pentagon, third face a quadrilateral and last face a triangle, would store the following data:
 
 <table>
     <tr>
@@ -539,7 +614,7 @@ A mesh face can have three (triangle), four (quad) or more vertices. Because the
     </tr>
 </table>
 
-**`Mesh::material_ids`**
+#### `Mesh::material_ids`
 
 Material IDs index into the the Materials array.
 
@@ -556,7 +631,7 @@ Material IDs index into the the Materials array.
     </tr>
 </table>
 
-**`Mesh::smoothing_group_ids`**
+#### `Mesh::smoothing_group_ids`
 
  Smoothing group IDs can be used to calculate vertex normals.
 
@@ -577,7 +652,7 @@ Material IDs index into the the Materials array.
 
 Lines class contains a set of polylines. The geometry data is stored in two arrays: indices and num_line_vertices.
 
-**`Lines::indices`**
+#### `Lines::indices`
 
 The indices array defines polylines by indexing into vertex attribute arrays. It is a linear array of Index objects. Index class has three fields: position_index, texcoord_index, and normal_index. The position_index is mandatory. UV coordinates are optional. If UV coordinates are not present, invalid index (-1) is stored in the texcoord_index fields. The normal_index is always set to invalid index.
 
@@ -597,7 +672,7 @@ The indices array defines polylines by indexing into vertex attribute arrays. It
     </tr>
 </table>
 
-**`Lines::num_line_vertices`**
+#### `Lines::num_line_vertices`
 
 A polyline can have two or more vertices. Because the indices array is flat, extra information is required to identify which indices are associated with a particular polyline. The number of vertices for each polyline [2..2<sup>31</sup>) is stored in the num_line_vertices array. The size of the num_line_vertices array is equal to the number of polylines.
 
@@ -618,7 +693,7 @@ A polyline can have two or more vertices. Because the indices array is flat, ext
 
 Points class contains a set of points. The geometry data is stored in the indices array.
 
-**`Points::indices`**
+#### `Points::indices`
 
 The indices array defines points by indexing into vertex attribute arrays. It is a linear array of Index objects. Index class has three fields: position_index, texcoord_index, and normal_index. The position_index is mandatory. UV coordinates are optional. If UV coordinates are not present, invalid index (-1) is stored in the texcoord_index fields. The normal_index is always set to invalid index.
 
@@ -637,7 +712,7 @@ The indices array defines points by indexing into vertex attribute arrays. It is
 
 ### Materials
 
-After ParseFunction loads and parses the .mtl file, all the material information is stored in the Result Materials array.
+After [`ParseFile`](#parsefile) or [`ParseStream`](#parsestream) function loads and parses the .mtl file, all the material information is stored in the  [`Result`](#result) Materials array.
 
 #### Material Parameters
 
@@ -711,7 +786,7 @@ After ParseFunction loads and parses the .mtl file, all the material information
 
 ## Example
 
-Suppose we want to find out the total number of triangles in an .obj file. This can be accomplished by passing the .obj file path to```ParseFile()``` and triangulating the result. The next step is looping through all the meshes; in each iteration, the number of triangles in the current mesh is added to the running sum. The code for this logic is shown below:
+Suppose we want to find out the total number of triangles in an .obj file. This can be accomplished by passing the .obj file path to the [`ParseFile`](#parsefile) function and then calling the [`Triangulate`](#triangulate) function. The next step is looping through all the meshes; in each iteration, the number of triangles in the current mesh is added to the running sum. The code for this logic is shown below:
 
 ```cpp
 #include "rapidobj/rapidobj.hpp"
@@ -750,7 +825,7 @@ int main()
 
 ## Next Steps
 
-Typically, parsed .obj data cannot be used "as is". For instance, for hardware rendering, a number of additional processing steps are required so that the data is in a format easily consumed by a GPU. rapidobj provides one convenience function, ```Triangulate()```, to assist with this task. Other tasks must be implemented by the rendering application. These may include:
+Typically, parsed .obj data cannot be used "as is". For instance, for hardware rendering, a number of additional processing steps are required so that the data is in a format easily consumed by a GPU. rapidobj provides one convenience function, [`Triangulate`](#triangulate), to assist with this task. Other tasks must be implemented by the rendering application. These may include:
 
 - Gathering all the attributes so that the vertex data is in a single array of interleaved attributes. This step may optionally include vertex deduplication.
 - Generate normals in case they are not provided in the .obj file. This step may use smoothing groups (if any) to create higher quality normals.
