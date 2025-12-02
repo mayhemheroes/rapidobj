@@ -1,0 +1,11 @@
+project: mayhemheroes/rapidobj
+target: rapidobj-fuzz
+
+cmds:
+  - cmd: ./rapidobj-fuzz
+    libfuzzer: true
+    env: {}
+image: ghcr.io/mayhemheroes/rapidobj@sha256:ca79d4ef27cfce19a778cf04a9b5071f05845047d135e11a225ee1b6a9187915
+duration: 300
+testsuite:
+  - https://app.mayhem.security/mayhemheroes/rapidobj/rapidobj-fuzz/testsuite.tar

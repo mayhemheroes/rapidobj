@@ -1,0 +1,107 @@
+# ============================================================================
+# RLENV Patch Playground - Single-Stage Build
+# ============================================================================
+# Original image: ghcr.io/mayhemheroes/rapidobj:master
+# Git revision: 86f42e0203d018b9898e87504cd369143db5728d
+# Target: rapidobj-fuzz (C++ LibFuzzer with sanitizers)
+
+# ============================================================================
+# 1. Base Image Selection
+# ============================================================================
+FROM debian:bookworm
+
+# ============================================================================
+# 2. System Dependencies (merged from all stages)
+# ============================================================================
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    clang \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# REQUIRED: jq is used by validate.sh to parse metadata.json
+# build-essential: Standard build tools (gcc, g++, make, etc.)
+# clang: C/C++ compiler with sanitizer support
+
+# ============================================================================
+# 3. Copy MTV Binary (REQUIRED - used by validate.sh)
+# ============================================================================
+COPY --from="us-east4-docker.pkg.dev/forallsecure-1/rlenv-staging/rlenv-mcp-static:latest" \
+     /rlenv/bin/mtv /rlenv/bin/mtv
+
+# MTV (Mayhem Test & Verify) is required for validation and crash triage
+
+# ============================================================================
+# 4. Language-Specific Setup
+# ============================================================================
+ENV FUZZING_LANGUAGE=c++
+ENV CXX=clang++
+
+# ============================================================================
+# 5. Copy Source Code (EARLY - source exists now)
+# ============================================================================
+COPY . /rlenv/source/rapidobj/
+
+# ============================================================================
+# 6. Make Source World-Writable (REQUIRED for non-root rebuilds)
+# ============================================================================
+RUN chmod -R 777 /rlenv/source
+
+# Why 777? Validation runs as UID 1000 (unprivileged user)
+# Must be able to modify source code and rebuild
+
+# ============================================================================
+# 7. Set Working Directory
+# ============================================================================
+WORKDIR /rlenv/source/rapidobj/fuzz
+
+# Build happens in the fuzz/ subdirectory
+
+# ============================================================================
+# 8. Build Application
+# ============================================================================
+RUN make
+
+# This compiles rapidobj-fuzz.cpp using the Makefile:
+# clang++ -g -std=c++17 -fsanitize=fuzzer,address,undefined,nullability,integer,implicit-conversion
+# -fno-sanitize-recover=undefined,nullability,integer,implicit-conversion rapidobj-fuzz.cpp -o rapidobj-fuzz
+
+# ============================================================================
+# 9. Copy Artifacts to Expected Locations
+# ============================================================================
+RUN cp rapidobj-fuzz /rapidobj-fuzz
+
+# Target executable must be at /rapidobj-fuzz (root directory)
+# This matches the original Dockerfile's COPY --from=builder
+
+# ============================================================================
+# 10. Permission Management (REQUIRED)
+# ============================================================================
+# Target executable (rwxrw-rw-)
+RUN chmod 766 /rapidobj-fuzz
+
+# ============================================================================
+# 11. Copy rlenv Directory (MUST BE NEAR END - doesn't exist yet!)
+# ============================================================================
+COPY rlenv /rlenv
+
+# CRITICAL: This directory doesn't exist when you create this Dockerfile
+# It's populated later by the `rlenv patch` command
+# That's why it must come AFTER source copy and build
+
+# ============================================================================
+# 12. Final Permission Fix (REQUIRED)
+# ============================================================================
+RUN chmod -R 777 /rlenv/source
+
+# Ensures source remains writable after rlenv directory copy
+
+# ============================================================================
+# 13. Set Entry Point
+# ============================================================================
+CMD ["./rapidobj-fuzz"]
+
+# ============================================================================
+# 14. Reset Working Directory
+# ============================================================================
+WORKDIR /

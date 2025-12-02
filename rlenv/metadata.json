@@ -1,0 +1,13 @@
+{
+  "workspace": "mayhemheroes",
+  "project": "rapidobj",
+  "target": "rapidobj-fuzz",
+  "run_id": "1",
+  "ci_url": "https://github.com:443/mayhemheroes/rapidobj//actions/runs/3941317649",
+  "run_image_name": "ghcr.io/mayhemheroes/rapidobj:master",
+  "run_image_with_digest": "ghcr.io/mayhemheroes/rapidobj@sha256:ca79d4ef27cfce19a778cf04a9b5071f05845047d135e11a225ee1b6a9187915",
+  "git_repo_url": "git@github.com:mayhemheroes/rapidobj.git",
+  "git_revision": "86f42e0203d018b9898e87504cd369143db5728d",
+  "target_executable": "./rapidobj-fuzz",
+  "working_dir": ""
+}
