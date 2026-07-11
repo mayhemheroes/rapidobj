@@ -1,0 +1,8 @@
+project: rapidobj
+target: rapidobj-fuzz
+testsuite:
+  - https://$MAYHEM_DOMAIN/$MAYHEM_PROJECT/$MAYHEM_TARGET/testsuite.tar
+  - file://mayhem/rapidobj-fuzz/testsuite
+cmds:
+  - cmd: /mayhem/rapidobj-fuzz
+    libfuzzer: true
